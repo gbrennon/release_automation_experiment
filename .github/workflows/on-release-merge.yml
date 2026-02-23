@@ -1,0 +1,35 @@
+name: On Release Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  extract-version:
+    if: |
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'release')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+    steps:
+      - name: Extract version from PR title
+        id: extract
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          VERSION=$(echo "$TITLE" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?')
+          if [[ -z "$VERSION" ]]; then
+            echo "✗ Could not extract version from PR title: '$TITLE'" >&2
+            exit 1
+          fi
+          echo "✓ Extracted version: $VERSION" >&2
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  release:
+    needs: extract-version
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.extract-version.outputs.version }}
+    secrets:
+      token: ${{ secrets.GITHUB_TOKEN }}

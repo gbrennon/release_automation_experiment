@@ -1,9 +1,5 @@
 name: Release (reusable)
 
-# Reusable workflow — called by consumer repos via:
-#
-#   uses: gbrennon/release_automation_golang/.github/workflows/release.yml@main
-
 on:
   workflow_call:
     inputs:
@@ -11,11 +7,6 @@ on:
         description: "Version tag to create (e.g. v1.2.3 or v1.2.3-rc1)"
         required: true
         type: string
-      pre-release-hook:
-        description: "Path to a pre-release hook script in the consumer repo (relative to repo root)"
-        required: false
-        type: string
-        default: ""
     secrets:
       token:
         description: "GitHub token with contents:write permission"
@@ -29,21 +20,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout consumer repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.token }}
 
-      - name: Run pre-release hook (if provided)
-        if: inputs.pre-release-hook != ''
+      - name: Verify branch is main
         run: |
-          HOOK="${{ inputs.pre-release-hook }}"
-          if [[ -f "$HOOK" ]]; then
-            echo "→ Running pre-release hook: $HOOK"
-            bash "$HOOK" "${{ inputs.version }}"
-          else
-            echo "Warning: pre-release hook '$HOOK' not found — skipping" >&2
+          BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          if [[ "$BRANCH" != "main" ]]; then
+            echo "✗ Expected main, got '$BRANCH' — tagging must happen on main" >&2
+            exit 1
           fi
+          echo "✓ On branch: $BRANCH" >&2
 
       - name: Create and push tag
         run: |
@@ -51,6 +41,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "${{ inputs.version }}"
           git push origin "${{ inputs.version }}"
+          echo "✓ Tag pushed: ${{ inputs.version }}" >&2
 
       - name: Extract release notes from CHANGELOG.md
         id: release-notes
@@ -60,6 +51,9 @@ jobs:
             /^## / { if (found) exit; if (index($0, ver)) found=1 }
             found  { print }
           ' CHANGELOG.md)
+          if [[ -z "$NOTES" ]]; then
+            echo "Warning: no release notes found for $VERSION in CHANGELOG.md" >&2
+          fi
           echo "content<<EOF" >> $GITHUB_OUTPUT
           echo "$NOTES"       >> $GITHUB_OUTPUT
           echo "EOF"          >> $GITHUB_OUTPUT
