@@ -24,19 +24,11 @@ pipeline:
 
         echo "→ Release detected: ${VERSION}"
 
-        # Full history needed by git-cliff
-        git fetch --unshallow 2>/dev/null || true
-
-        # Install git-cliff
-        curl -sSL https://github.com/orhun/git-cliff/releases/download/v2.7.0/git-cliff-v2.7.0-x86_64-unknown-linux-musl.tar.gz \
-          | tar -xz --strip-components=1
-        chmod +x git-cliff
-
-        CLIFF_CONFIG=".cliff.toml"
-        [[ -f ".cliff.toml" ]] || CLIFF_CONFIG=".woodpecker/.cliff.toml"
-
         # Generate release notes for this version only (release body)
-        RELEASE_NOTES=$(./git-cliff --config "$CLIFF_CONFIG" --tag "$VERSION" --latest --strip all)
+        RELEASE_NOTES=$(awk -v ver="$VERSION" '
+          /^## / { if (found) exit; if (index($0, ver)) found=1 }
+          found  { print }
+        ' CHANGELOG.md)
 
         # Push tag
         git config user.name  "woodpecker[bot]"
