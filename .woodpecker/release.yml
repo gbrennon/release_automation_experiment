@@ -1,0 +1,118 @@
+name: Release
+
+# Triggered on every push to main.
+# Only proceeds when the commit is a merged release PR, identified by the
+# "chore(release): vX.Y.Z" message written by scripts/release.sh.
+#
+# Steps:
+#   1. generate-changelog  — build CHANGELOG.md, commit it back to main, push tag
+#   2. create-release      — create a Gitea release with per-version release notes
+#
+# The two steps share the workspace (Woodpecker default) so .release-version
+# and release_notes.md written in step 1 are readable in step 2.
+
+pipeline:
+  generate-changelog:
+    image: golang:1.24-alpine
+    commands:
+      - apk add --no-cache git bash curl
+      - |
+        bash -euo pipefail << 'SCRIPT'
+
+        # Extract version from commit message ("chore(release): vX.Y.Z")
+        VERSION=$(echo "${CI_COMMIT_MESSAGE}" \
+          | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?' \
+          | head -n1 || true)
+
+        if [[ -z "$VERSION" ]]; then
+          echo "No version found in commit message — not a release commit, skipping"
+          exit 0
+        fi
+
+        echo "→ Release detected: ${VERSION}"
+        echo "$VERSION" > .release-version
+
+        # Full history needed by git-cliff
+        git fetch --unshallow 2>/dev/null || true
+
+        # Install git-cliff to a temp dir — avoids polluting the repo root
+        mkdir -p /tmp/cliff
+        curl -sSL https://github.com/orhun/git-cliff/releases/download/v2.7.0/git-cliff-v2.7.0-x86_64-unknown-linux-musl.tar.gz \
+          | tar -xz --strip-components=1 -C /tmp/cliff
+        export PATH="/tmp/cliff:$PATH"
+
+        CLIFF_CONFIG=".cliff.toml"
+        [[ -f ".cliff.toml" ]] || CLIFF_CONFIG=".woodpecker/.cliff.toml"
+
+        # Generate full CHANGELOG.md (committed back to main)
+        git-cliff --config "$CLIFF_CONFIG" --tag "$VERSION" --verbose > CHANGELOG.md
+
+        # Generate per-version release notes (consumed by create-release step)
+        git-cliff --config "$CLIFF_CONFIG" --tag "$VERSION" --latest --strip all > release_notes.md
+
+        # Commit CHANGELOG.md back to main
+        git config user.name  "woodpecker[bot]"
+        git config user.email "woodpecker@localhost"
+        git remote set-url origin "https://${GITEA_TOKEN}@codeberg.org/${CI_REPO_OWNER}/${CI_REPO_NAME}.git"
+
+        git add CHANGELOG.md
+        if git diff --cached --quiet; then
+          echo "→ CHANGELOG.md unchanged — skipping commit"
+        else
+          git commit -m "docs(changelog): generate for ${VERSION} [skip ci]"
+          git push origin HEAD:main
+          echo "✓ CHANGELOG.md committed to main"
+        fi
+
+        # Tag points to the changelog commit (or the merge commit if unchanged)
+        git tag "$VERSION"
+        git push origin "$VERSION"
+        echo "✓ Tag ${VERSION} pushed"
+
+        SCRIPT
+    secrets:
+      - source: gitea_token
+        target: GITEA_TOKEN
+    when:
+      - event: push
+        branch: main
+
+  create-release:
+    image: alpine:latest
+    commands:
+      - apk add --no-cache bash curl jq
+      - |
+        bash -euo pipefail << 'SCRIPT'
+
+        if [[ ! -f ".release-version" ]]; then
+          echo "Not a release commit — skipping"
+          exit 0
+        fi
+
+        VERSION=$(cat .release-version)
+        IS_PRERELEASE="false"
+        [[ "$VERSION" == *"-"* ]] && IS_PRERELEASE="true"
+
+        BODY=$(jq -Rs . < release_notes.md)
+
+        curl -sSf -X POST \
+          "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/releases" \
+          -H "Authorization: token ${GITEA_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"tag_name\": \"${VERSION}\",
+            \"name\": \"Release ${VERSION}\",
+            \"body\": ${BODY},
+            \"draft\": false,
+            \"prerelease\": ${IS_PRERELEASE}
+          }"
+
+        echo "✓ Release ${VERSION} created on Codeberg"
+
+        SCRIPT
+    secrets:
+      - source: gitea_token
+        target: GITEA_TOKEN
+    when:
+      - event: push
+        branch: main
