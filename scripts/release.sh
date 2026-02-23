@@ -32,12 +32,12 @@
 set -euo pipefail
 [[ "${DEBUG:-0}" == "1" ]] && set -x
 
-# --- Helpers ---
+# --- Helpers (all output to stderr so progress never pollutes captured stdout) ---
 
-step()    { echo ""; echo "▶ $*"; }
-info()    { echo "  · $*"; }
-success() { echo "  ✓ $*"; }
-fail()    { echo "  ✗ $*" >&2; }
+step()    { echo ""                  >&2; echo "▶ $*" >&2; }
+info()    { echo "  · $*"            >&2; }
+success() { echo "  ✓ $*"            >&2; }
+fail()    { echo "  ✗ $*"            >&2; }
 
 # --- Bootstrap ---
 
@@ -62,7 +62,8 @@ fi
 step "Computing next version"
 info "bump type : $BUMP"
 info "RC suffix : ${RC:-<none>}"
-
+info "fetching remote tags..."
+git fetch --tags --quiet
 NEXT_VERSION=$(RC="${RC:-}" "$SCRIPT_DIR/next-version.sh" "$BUMP")
 TAG="v${NEXT_VERSION}"
 BRANCH_NAME="release/${TAG}"

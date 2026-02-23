@@ -18,43 +18,57 @@
 
 set -euo pipefail
 
+# --- Helpers ---
+
+step()    { echo ""        >&2; echo "▶ $*" >&2; }
+info()    { echo "  · $*"  >&2; }
+success() { echo "  ✓ $*"  >&2; }
+fail()    { echo "  ✗ $*"  >&2; }
+
+# --- Args ---
+
+step "Pre-release hook"
+
 BUMP="${1:-}"
 TAG="${2:-}"
 
 if [[ -z "$BUMP" || -z "$TAG" ]]; then
-  echo "Usage: $0 <bump> <tag>" >&2
+  fail "Usage: $0 <bump> <tag>"
   exit 1
 fi
 
+info "bump : $BUMP"
+info "tag  : $TAG"
+
 # Only major bumps require module path changes
 if [[ "$BUMP" != "major" ]]; then
-  echo "  ✓ $BUMP release — no module path changes needed"
+  success "$BUMP release — no module path changes needed"
   exit 0
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# --- Bootstrap ---
+
+step "Rewriting Go module path"
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 GOMOD="${REPO_ROOT}/go.mod"
 
 if [[ ! -f "$GOMOD" ]]; then
-  echo "Error: go.mod not found at $GOMOD" >&2
+  fail "go.mod not found at $GOMOD"
   exit 1
 fi
 
 # --- Extract current and next major version ---
 
-# Read the current module path from go.mod (first line: module github.com/user/repo/vN)
 CURRENT_MODULE=$(grep -E '^module ' "$GOMOD" | awk '{print $2}')
-echo "  current module: $CURRENT_MODULE"
+info "current module: $CURRENT_MODULE"
 
-# Extract the current major version suffix (e.g. /v2 → 2). Defaults to 1 if no suffix.
 CURRENT_MAJOR=$(echo "$CURRENT_MODULE" | grep -oE '/v[0-9]+$' | grep -oE '[0-9]+' || echo "1")
 NEXT_MAJOR=$((CURRENT_MAJOR + 1))
 
 CURRENT_SUFFIX="/v${CURRENT_MAJOR}"
 NEXT_SUFFIX="/v${NEXT_MAJOR}"
 
-# For v1 modules the path has no suffix — the new path just appends /v2
 if [[ "$CURRENT_MAJOR" -eq 1 ]]; then
   CURRENT_PATH="$CURRENT_MODULE"
   NEXT_MODULE="${CURRENT_MODULE}/v2"
@@ -64,18 +78,17 @@ else
   NEXT_MODULE="${CURRENT_MODULE%${CURRENT_SUFFIX}}${NEXT_SUFFIX}"
 fi
 
-echo "  next module   : $NEXT_MODULE"
+info "next module   : $NEXT_MODULE"
 
 # --- Rewrite go.mod ---
 
+step "Updating go.mod"
 sed -i "s|^module ${CURRENT_PATH}$|module ${NEXT_MODULE}|" "$GOMOD"
-echo "  ✓ Updated go.mod"
+success "go.mod updated"
 
 # --- Rewrite all internal import paths ---
-#
-# Find all .go files and replace any import of the old module path with the new one.
-# Uses a temp file to handle sed -i portability across Linux and macOS.
 
+step "Rewriting import paths"
 GO_FILES=$(find "$REPO_ROOT" -name "*.go" -not -path "*/vendor/*")
 COUNT=0
 
@@ -86,10 +99,10 @@ while IFS= read -r file; do
   fi
 done <<< "$GO_FILES"
 
-echo "  ✓ Updated $COUNT .go file(s) with new import path"
+success "updated $COUNT .go file(s)"
 
 # --- Verify the module still builds ---
 
-echo "  → Running go mod tidy..."
+step "Running go mod tidy"
 cd "$REPO_ROOT" && go mod tidy
-echo "  ✓ go mod tidy passed"
+success "go mod tidy passed"

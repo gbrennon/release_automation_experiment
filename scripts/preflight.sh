@@ -8,6 +8,13 @@
 
 set -euo pipefail
 
+# --- Helpers ---
+
+step()    { echo ""        >&2; echo "▶ $*" >&2; }
+info()    { echo "  · $*"  >&2; }
+success() { echo "  ✓ $*"  >&2; }
+fail()    { echo "  ✗ $*"  >&2; }
+
 ERRORS=()
 
 # --- Checks ---
@@ -36,17 +43,25 @@ check_tool() {
 
 # --- Run ---
 
+step "Preflight checks"
+
+info "checking branch..."
 check_main_branch
+
+info "checking worktree..."
 check_clean_worktree
-check_tool "gh" "see https://cli.github.com"
+
+info "checking required tools..."
+check_tool "gh"        "see https://cli.github.com"
 check_tool "git-cliff" "see https://git-cliff.org/docs/installation"
 
 if [[ ${#ERRORS[@]} -gt 0 ]]; then
-  echo "Pre-flight checks failed:" >&2
+  echo "" >&2
+  fail "Pre-flight checks failed:"
   for err in "${ERRORS[@]}"; do
-    echo "  ✗ $err" >&2
+    fail "$err"
   done
   exit 1
 fi
 
-echo "✓ All pre-flight checks passed"
+success "all pre-flight checks passed"
