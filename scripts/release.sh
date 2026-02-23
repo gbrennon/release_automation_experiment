@@ -21,6 +21,7 @@
 #
 # Environment:
 #   RC     If set, passed through to next-version.sh for rc<N> suffix.
+#   DEBUG  If set to 1, enables bash trace output (set -x).
 #
 # Hooks:
 #   scripts/hooks/pre-release.sh   Run after branch creation, before the commit.
@@ -29,10 +30,23 @@
 #                                  release commit.
 
 set -euo pipefail
+[[ "${DEBUG:-0}" == "1" ]] && set -x
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# --- Helpers ---
+
+step()    { echo ""; echo "▶ $*"; }
+info()    { echo "  · $*"; }
+success() { echo "  ✓ $*"; }
+fail()    { echo "  ✗ $*" >&2; }
+
+# --- Bootstrap ---
+
+step "Initialising"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT_DIR="${REPO_ROOT}/scripts"
 PRE_RELEASE_HOOK="${SCRIPT_DIR}/hooks/pre-release.sh"
+info "repo root : $REPO_ROOT"
+info "script dir: $SCRIPT_DIR"
 
 # --- Args ---
 
@@ -45,23 +59,29 @@ fi
 
 # --- Compute next version ---
 
+step "Computing next version"
+info "bump type : $BUMP"
+info "RC suffix : ${RC:-<none>}"
+
 NEXT_VERSION=$(RC="${RC:-}" "$SCRIPT_DIR/next-version.sh" "$BUMP")
 TAG="v${NEXT_VERSION}"
 BRANCH_NAME="release/${TAG}"
 
-echo "→ bump    : $BUMP"
-echo "→ version : $TAG"
-echo "→ branch  : $BRANCH_NAME"
+info "latest tag: $(git tag --sort=-v:refname | grep -E '^v[0-9]' | head -n1 || echo '<none>')"
+success "next version : $TAG"
+success "release branch: $BRANCH_NAME"
 
 # --- Create release branch ---
 
+step "Creating release branch"
 git checkout -b "$BRANCH_NAME"
+success "on branch $BRANCH_NAME"
 
 # Restore original branch on failure
 cleanup() {
   local exit_code=$?
   if [[ $exit_code -ne 0 ]]; then
-    echo "✗ Release failed — cleaning up branch '$BRANCH_NAME'" >&2
+    fail "Release failed — cleaning up branch '$BRANCH_NAME'"
     git checkout main
     git branch -D "$BRANCH_NAME" 2>/dev/null || true
   fi
@@ -69,53 +89,63 @@ cleanup() {
 trap cleanup EXIT
 
 # --- Run pre-release hook (if present) ---
-#
-# The hook receives bump type and tag so it can make decisions
-# (e.g. only rewrite go.mod on major bumps).
-# Any files modified by the hook are staged and included in the release commit.
 
+step "Pre-release hook"
 if [[ -x "$PRE_RELEASE_HOOK" ]]; then
-  echo "→ Running pre-release hook..."
+  info "running $PRE_RELEASE_HOOK $BUMP $TAG"
   "$PRE_RELEASE_HOOK" "$BUMP" "$TAG"
+  success "hook completed"
 else
-  echo "→ No pre-release hook found — skipping"
+  info "no executable hook at $PRE_RELEASE_HOOK — skipping"
 fi
 
 # --- Generate CHANGELOG.md ---
 
+step "Generating CHANGELOG.md"
 CLIFF_CONFIG="${REPO_ROOT}/.cliff.toml"
-echo "→ Generating CHANGELOG.md..."
+info "config : $CLIFF_CONFIG"
+info "tag    : $TAG"
 git-cliff --config "$CLIFF_CONFIG" --tag "$TAG" --verbose > "${REPO_ROOT}/CHANGELOG.md"
-echo "✓ CHANGELOG.md generated"
+success "CHANGELOG.md written"
 
 # --- Commit and push ---
 
+step "Committing and pushing"
 git add --all
+git status --short
 git commit --allow-empty -m "chore(release): ${TAG}"
+info "pushing $BRANCH_NAME..."
 git push origin "$BRANCH_NAME"
+success "branch pushed"
 
 # --- Ensure the 'release' label exists ---
-# gh pr create fails hard if the label is missing, so create it idempotently.
 
+step "Ensuring 'release' label exists"
 gh label create release \
   --description "Release PR" \
   --color 0075ca \
-  2>/dev/null || true
+  2>/dev/null && success "label created" || info "label already exists"
 
 # --- Open GitHub PR ---
-# Body is intentionally minimal — CI will update it with the generated changelog.
 
-echo "→ Opening PR..."
-gh pr create \
+step "Opening PR"
+PR_URL=$(gh pr create \
   --title "chore(release): ${TAG}" \
-  --body  "_Changelog will be generated and posted by CI shortly..._" \
+  --body  "_Release notes will be posted by CI shortly..._" \
   --base  main \
   --head  "$BRANCH_NAME" \
-  --label release
+  --label release)
+success "PR opened: $PR_URL"
 
 # --- Return to main ---
 
+step "Cleaning up"
 git checkout main
 git branch -D "$BRANCH_NAME"
+info "returned to main, local branch deleted"
 
-echo "✓ Release PR opened for ${TAG}"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  ✓ Release PR ready: $TAG"
+echo "  $PR_URL"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
