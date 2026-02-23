@@ -11,11 +11,6 @@ on:
         description: "Version tag to create (e.g. v1.2.3 or v1.2.3-rc1)"
         required: true
         type: string
-      automation-ref:
-        description: "Git ref to pin the shared automation repo to (tag, branch, or SHA). Defaults to 'main' during development — pin to a tag once validated."
-        required: false
-        type: string
-        default: "main"
       pre-release-hook:
         description: "Path to a pre-release hook script in the consumer repo (relative to repo root)"
         required: false
@@ -39,15 +34,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Checkout shared release-automation
-        uses: actions/checkout@v4
-        with:
-          # github.action_repository resolves to the repo that hosts this workflow
-          # (e.g. gbrennon/release_automation_golang), so no hardcoded name needed.
-          repository: ${{ github.action_repository }}
-          ref: ${{ inputs.automation-ref }}
-          path: .release-automation
-
       - name: Run pre-release hook (if provided)
         if: inputs.pre-release-hook != ''
         run: |
@@ -66,34 +52,24 @@ jobs:
           git tag "${{ inputs.version }}"
           git push origin "${{ inputs.version }}"
 
-      - name: Resolve cliff.toml
-        id: cliff-config
+      - name: Extract release notes from CHANGELOG.md
+        id: release-notes
         run: |
-          # Prefer the consumer repo's own .cliff.toml if present,
-          # otherwise fall back to the one bundled in this automation repo.
-          if [[ -f ".cliff.toml" ]]; then
-            echo "config=.cliff.toml" >> $GITHUB_OUTPUT
-            echo "→ Using consumer .cliff.toml"
-          else
-            echo "config=.release-automation/.cliff.toml" >> $GITHUB_OUTPUT
-            echo "→ Using shared .cliff.toml from ${{ github.action_repository }}"
-          fi
-
-      - name: Generate release notes with git-cliff
-        id: changelog
-        uses: orhun/git-cliff-action@main
-        with:
-          config: ${{ steps.cliff-config.outputs.config }}
-          # --latest   : only emit the section for this version
-          # --strip all: no header/footer, clean markdown for the release body
-          args: --latest --strip all --verbose
+          VERSION="${{ inputs.version }}"
+          NOTES=$(awk -v ver="$VERSION" '
+            /^## / { if (found) exit; if (index($0, ver)) found=1 }
+            found  { print }
+          ' CHANGELOG.md)
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES"       >> $GITHUB_OUTPUT
+          echo "EOF"          >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.version }}
           name: Release ${{ inputs.version }}
-          body: ${{ steps.changelog.outputs.content }}
+          body: ${{ steps.release-notes.outputs.content }}
           draft: false
           prerelease: ${{ contains(inputs.version, '-') }}
         env:
