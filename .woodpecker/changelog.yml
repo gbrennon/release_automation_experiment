@@ -1,0 +1,49 @@
+name: Changelog Preview
+
+# Triggered on every pull_request event.
+# Only acts on release/v* source branches — guarded by the `when` block,
+# not inside the script, so non-release PRs never spin up a container.
+
+pipeline:
+  release-notes-preview:
+    image: golang:1.24-alpine
+    commands:
+      - apk add --no-cache git bash curl jq
+      - |
+        bash -euo pipefail << 'SCRIPT'
+
+        VERSION="${CI_COMMIT_SOURCE_BRANCH#release/}"
+        echo "→ Generating release notes preview for ${VERSION}"
+
+        # Full history needed by git-cliff
+        git fetch --unshallow 2>/dev/null || true
+
+        # Install git-cliff to a temp dir — avoids polluting the repo root
+        mkdir -p /tmp/cliff
+        curl -sSL https://github.com/orhun/git-cliff/releases/download/v2.7.0/git-cliff-v2.7.0-x86_64-unknown-linux-musl.tar.gz \
+          | tar -xz --strip-components=1 -C /tmp/cliff
+        export PATH="/tmp/cliff:$PATH"
+
+        CLIFF_CONFIG=".cliff.toml"
+        [[ -f ".cliff.toml" ]] || CLIFF_CONFIG=".woodpecker/.cliff.toml"
+
+        # Generate release notes for unreleased commits as if tagged $VERSION
+        RELEASE_NOTES=$(git-cliff --config "$CLIFF_CONFIG" --tag "$VERSION" --unreleased --strip all)
+
+        # Update PR body via Gitea API
+        BODY=$(printf '%s' "$RELEASE_NOTES" | jq -Rs .)
+        curl -sSf -X PATCH \
+          "https://codeberg.org/api/v1/repos/${CI_REPO_OWNER}/${CI_REPO_NAME}/pulls/${CI_COMMIT_PULL_REQUEST}" \
+          -H "Authorization: token ${GITEA_TOKEN}" \
+          -H "Content-Type: application/json" \
+          -d "{\"body\": ${BODY}}"
+
+        echo "✓ PR #${CI_COMMIT_PULL_REQUEST} body updated with release notes preview"
+
+        SCRIPT
+    secrets:
+      - source: gitea_token
+        target: GITEA_TOKEN
+    when:
+      - event: pull_request
+        branch: release/v*
