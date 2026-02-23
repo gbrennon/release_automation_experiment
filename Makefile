@@ -6,19 +6,20 @@ all: test
 #
 # Bump patch version:  1.2.3 → 1.2.4
 # Add RC=1 for a release candidate:  1.2.4-rc1, 1.2.4-rc2, ...
+# Add DEBUG=1 for verbose trace output.
 release:
 	@./scripts/preflight.sh
-	@RC=$(RC) ./scripts/release.sh patch
+	@RC=$(RC) DEBUG=$(DEBUG) ./scripts/release.sh patch
 
 # Bump minor version:  1.2.3 → 1.3.0
 release-minor:
 	@./scripts/preflight.sh
-	@RC=$(RC) ./scripts/release.sh minor
+	@RC=$(RC) DEBUG=$(DEBUG) ./scripts/release.sh minor
 
 # Bump major version:  1.2.3 → 2.0.0  (rewrites go.mod module path)
 release-major:
 	@./scripts/preflight.sh
-	@RC=$(RC) ./scripts/release.sh major
+	@RC=$(RC) DEBUG=$(DEBUG) ./scripts/release.sh major
 
 preflight:
 	@./scripts/preflight.sh
