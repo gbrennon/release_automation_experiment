@@ -35,57 +35,19 @@ unreleased = true
 conventional_commits = true
 filter_unmerged = true
 
-# Major changes
-[[git.commit_parsers]]
-message = "^feat!(.+)"
-group = "Breaking Changes"
-default_branch = "main"
-# filter_unmerged = true
+commit_parsers = [
+# Conventional Commits Parsers
+  { message = "^feat![:(].*", group = "Major Changes" },
+  { message = "^feat[:(].*", group = "Features" },
+  { message = "^fix[:(].*", group = "Bug Fixes" },
+  { message = "^refactor[:(].*", group = "Refactoring" },
+  { message = "^docs[:(].*", group = "Documentation" },
+  { message = "^test[:(].*", group = "Testing" },
+  { message = "^(build|ci)[:(].*", group = "Build / CI" },
+  { message = ".*", group = "Other Changes" },
+]
 
-# Features
-[[git.commit_parsers]]
-message = "^feat(.+)"
-group = "Features"
-default_branch = "main"
-
-# Bug fixes
-[[git.commit_parsers]]
-message = "^fix(.+)"
-group = "Bug Fixes"
-default_branch = "main"
-
-# Refactoring
-[[git.commit_parsers]]
-message = "^refactor(.+)"
-group = "Refactoring"
-default_branch = "main"
-
-# Documentation
-[[git.commit_parsers]]
-message = "^docs(.+)"
-group = "Documentation"
-default_branch = "main"
-
-# Tests
-[[git.commit_parsers]]
-message = "^test(.+)"
-group = "Testing"
-default_branch = "main"
-
-# Build / CI
-[[git.commit_parsers]]
-message = "^build(.+)|^ci(.+)"
-group = "Build / CI"
-default_branch = "main"
-
-# Other commits
-[[git.commit_parsers]]
-message = ".*"
-group = "Other Changes"
-default_branch = "main"
-
-[[git.tagparsers]]
-# treat tags with a `v` prefix as semantic version tags
-pattern = "^v(.*)$"
-# semantic version parser - supports v1.0.0, v1.0.0-rc1, v1.0.0-alpha, v1.0.0-beta, v1.0.0-preview, v1.0.0-dev, etc.
-semver = "v(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)(-(?P<prerelease>(rc|alpha|beta|preview|dev)\\d*))?$"
+# Tag Parsers
+tag_parsers = [
+  { pattern = "^v(.*)$", semver = "v(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)(-(?P<prerelease>(rc|alpha|beta|preview|dev)\\d*))?$" }
+]

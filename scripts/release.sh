@@ -106,7 +106,7 @@ step "Generating CHANGELOG.md"
 CLIFF_CONFIG="${REPO_ROOT}/.cliff.toml"
 info "config : $CLIFF_CONFIG"
 info "tag    : $TAG"
-git-cliff --config "$CLIFF_CONFIG" --tag "$TAG" --verbose > "${REPO_ROOT}/CHANGELOG.md"
+git-cliff --config "$CLIFF_CONFIG" --tag "$TAG" -vvv > "${REPO_ROOT}/CHANGELOG.md"
 success "CHANGELOG.md written"
 
 # --- Commit and push ---
