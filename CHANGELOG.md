@@ -2,4 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-This file is generated automatically by [git-cliff](https://git-cliff.org) during the release process (`make release`). Do not edit it manually.
+## [0.0.1] - 2026-02-23
+### Other Changes
+
+- v0.1.0 ([044be2a]())
+
+- Changelog and Release Automation ([96435f9]())
