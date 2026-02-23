@@ -39,7 +39,7 @@ check_tool() {
 check_main_branch
 check_clean_worktree
 check_tool "gh" "see https://cli.github.com"
-# git-cliff is NOT required locally — it runs in CI via changelog.yml
+check_tool "git-cliff" "see https://git-cliff.org/docs/installation"
 
 if [[ ${#ERRORS[@]} -gt 0 ]]; then
   echo "Pre-flight checks failed:" >&2
