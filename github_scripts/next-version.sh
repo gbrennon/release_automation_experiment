@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# scripts/release.sh
 #
 # Orchestrates a full release:
 #   1. Computes the next version

@@ -1,0 +1,12 @@
+name: Test
+
+# Runs on every push and every PR.
+# This is the gate — release.yml only merges after this passes.
+
+pipeline:
+  test:
+    image: golang:1.24-alpine
+    commands:
+      - go test ./...
+    when:
+      - event: [push, pull_request]

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# scripts/preflight.sh
 #
 # Validates the local environment before attempting a release.
 # Exits non-zero on the first failure.
