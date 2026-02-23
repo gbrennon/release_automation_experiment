@@ -1,0 +1,69 @@
+name: Generate Changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  changelog:
+    # Only run for release/v* branches
+    if: startsWith(github.event.pull_request.head.ref, 'release/v')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          # Checkout the PR branch so we can commit CHANGELOG.md back to it
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Extract version from branch name
+        id: version
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          VERSION="${BRANCH#release/}"
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Generating changelog for ${VERSION}"
+
+      - name: Generate full CHANGELOG.md
+        uses: orhun/git-cliff-action@main
+        with:
+          config: .cliff.toml
+          args: --tag ${{ steps.version.outputs.VERSION }} --verbose
+          output: CHANGELOG.md
+
+      - name: Commit CHANGELOG.md to release branch
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+
+          if git diff --cached --quiet; then
+            echo "→ CHANGELOG.md unchanged — skipping commit"
+          else
+            git commit -m "docs(changelog): generate for ${{ steps.version.outputs.VERSION }} [skip ci]"
+            git push origin "${{ github.event.pull_request.head.ref }}"
+            echo "✓ CHANGELOG.md committed to release branch"
+          fi
+
+      - name: Generate release notes for PR body
+        id: release-notes
+        uses: orhun/git-cliff-action@main
+        with:
+          config: .cliff.toml
+          # --latest   : only this version's section
+          # --strip all: no header/footer — clean markdown for the PR body
+          args: --tag ${{ steps.version.outputs.VERSION }} --latest --strip all
+
+      - name: Update PR body with release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit "${{ github.event.pull_request.number }}" \
+            --body "${{ steps.release-notes.outputs.content }}"
