@@ -11,8 +11,7 @@ pipeline:
     image: alpine:latest
     commands:
       - apk add --no-cache git bash curl jq
-      - |
-        set -euo pipefail
+      - bash -euo pipefail << 'SCRIPT'
 
         # Extract version from commit message ("chore(release): vX.Y.Z")
         VERSION=$(echo "${CI_COMMIT_MESSAGE}" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?' | head -n1 || true)
@@ -24,7 +23,7 @@ pipeline:
 
         echo "→ Release detected: ${VERSION}"
 
-        # Generate release notes for this version only (release body)
+        # Extract release notes for this version from CHANGELOG.md
         RELEASE_NOTES=$(awk -v ver="$VERSION" '
           /^## / { if (found) exit; if (index($0, ver)) found=1 }
           found  { print }
@@ -57,6 +56,8 @@ pipeline:
           }"
 
         echo "✓ Release ${VERSION} created on Codeberg"
+
+        SCRIPT
     secrets:
       - source: gitea_token
         target: GITEA_TOKEN
