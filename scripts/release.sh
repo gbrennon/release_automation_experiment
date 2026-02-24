@@ -72,6 +72,23 @@ info "latest tag: $(git tag --sort=-v:refname | grep -E '^v[0-9]' | head -n1 || 
 success "next version : $TAG"
 success "release branch: $BRANCH_NAME"
 
+# --- Guard: abort if remote branch or open PR already exists ---
+
+step "Checking for existing release"
+if git ls-remote --exit-code origin "refs/heads/$BRANCH_NAME" &>/dev/null; then
+  fail "Remote branch '$BRANCH_NAME' already exists."
+  fail "Close/delete the existing PR and branch, then re-run."
+  exit 1
+fi
+if gh pr list --repo "$(gh repo view --json nameWithOwner -q .nameWithOwner)" \
+     --head "$BRANCH_NAME" --state open --json number -q '.[0].number' \
+   | grep -q '^[0-9]'; then
+  fail "An open PR for '$BRANCH_NAME' already exists."
+  fail "Close it and delete the remote branch, then re-run."
+  exit 1
+fi
+success "no existing release branch or PR found"
+
 # --- Create release branch ---
 
 step "Creating release branch"
