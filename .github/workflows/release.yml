@@ -1,16 +1,29 @@
-name: Release (reusable)
+name: Release
+
+# Triggers automatically on push to main when a release PR is merged
+# (detected by the "chore(release): vX.Y.Z" commit message written by scripts/release.sh).
+#
+# Can also be called as a reusable workflow with an explicit version input:
+#   uses: ./.github/workflows/release.yml
+#   with:
+#     version: v1.2.3
+#   secrets:
+#     token: ${{ secrets.GITHUB_TOKEN }}
 
 on:
+  push:
+    branches: [main]
   workflow_call:
     inputs:
       version:
-        description: "Version tag to create (e.g. v1.2.3 or v1.2.3-rc1)"
-        required: true
+        description: "Version tag (e.g. v1.2.3). If omitted, derived from the commit message."
+        required: false
         type: string
+        default: ""
     secrets:
       token:
         description: "GitHub token with contents:write permission"
-        required: true
+        required: false
 
 permissions:
   contents: write
@@ -24,47 +37,59 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.token }}
+          token: ${{ secrets.token || secrets.GITHUB_TOKEN }}
 
-      - name: Verify branch is main
+      - name: Resolve version
+        id: version
         run: |
-          BRANCH=$(git rev-parse --abbrev-ref HEAD)
-          if [[ "$BRANCH" != "main" ]]; then
-            echo "✗ Expected main, got '$BRANCH' — tagging must happen on main" >&2
-            exit 1
+          VERSION="${{ inputs.version }}"
+
+          if [[ -z "$VERSION" ]]; then
+            # Derive from commit message: "chore(release): vX.Y.Z"
+            VERSION=$(echo "${{ github.event.head_commit.message }}" \
+              | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?' \
+              | head -n1 || true)
           fi
-          echo "✓ On branch: $BRANCH" >&2
+
+          if [[ -z "$VERSION" ]]; then
+            echo "No version in commit message — not a release commit, skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Releasing $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "skip=false"       >> $GITHUB_OUTPUT
 
       - name: Create and push tag
+        if: steps.version.outputs.skip != 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "${{ inputs.version }}"
-          git push origin "${{ inputs.version }}"
-          echo "✓ Tag pushed: ${{ inputs.version }}" >&2
+          git tag "${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}"
 
       - name: Extract release notes from CHANGELOG.md
         id: release-notes
+        if: steps.version.outputs.skip != 'true'
         run: |
-          VERSION="${{ inputs.version }}"
+          VERSION="${{ steps.version.outputs.version }}"
           NOTES=$(awk -v ver="$VERSION" '
             /^## / { if (found) exit; if (index($0, ver)) found=1 }
             found  { print }
           ' CHANGELOG.md)
-          if [[ -z "$NOTES" ]]; then
-            echo "Warning: no release notes found for $VERSION in CHANGELOG.md" >&2
-          fi
           echo "content<<EOF" >> $GITHUB_OUTPUT
           echo "$NOTES"       >> $GITHUB_OUTPUT
           echo "EOF"          >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
+        if: steps.version.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
-          name: Release ${{ inputs.version }}
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
           body: ${{ steps.release-notes.outputs.content }}
           draft: false
-          prerelease: ${{ contains(inputs.version, '-') }}
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
         env:
-          GITHUB_TOKEN: ${{ secrets.token }}
+          GITHUB_TOKEN: ${{ secrets.token || secrets.GITHUB_TOKEN }}
